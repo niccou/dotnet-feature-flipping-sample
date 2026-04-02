@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FeatureFlipping.Api/FeatureFlipping.Api.csproj" />
+    <Project Path="src/FeatureFlipping.Application/FeatureFlipping.Application.csproj" />
+    <Project Path="src/FeatureFlipping.Blazor/FeatureFlipping.Blazor.csproj" />
+    <Project Path="src/FeatureFlipping.Domain/FeatureFlipping.Domain.csproj" />
+    <Project Path="src/FeatureFlipping.Infrastructure/FeatureFlipping.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FeatureFlipping.Tests/FeatureFlipping.Tests.csproj" />
+  </Folder>
+</Solution>
