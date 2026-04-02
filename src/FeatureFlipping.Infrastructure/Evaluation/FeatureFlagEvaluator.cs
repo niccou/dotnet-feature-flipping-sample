@@ -39,6 +39,14 @@ public sealed class FeatureFlagEvaluator : IFeatureFlagEvaluator
 
         if (!flag.IsEnabled)
         {
+            // Even if globally disabled, explicitly targeted users still get the flag.
+            var earlyTargeting = flag.GetUserTargeting();
+            if (earlyTargeting.Length > 0 && userId is not null && earlyTargeting.Contains(userId))
+            {
+                _logger.LogDebug("Flag '{Key}' enabled for user '{UserId}' via targeting (flag globally off)", key.Value, userId);
+                return new FlagEvaluationResult(true, flag.Value, DateTime.UtcNow, EvaluationReason.UserTargeted);
+            }
+
             _logger.LogDebug("Flag '{Key}' is disabled", key.Value);
             return new FlagEvaluationResult(false, flag.Value, DateTime.UtcNow, EvaluationReason.Disabled);
         }

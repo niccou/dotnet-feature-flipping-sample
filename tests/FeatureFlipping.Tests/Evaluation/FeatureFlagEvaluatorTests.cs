@@ -112,4 +112,31 @@ public sealed class FeatureFlagEvaluatorTests
         Assert.True(result.IsEnabled);
         await _cache.Received(1).SetAsync(key, flag);
     }
+
+    [Fact]
+    public async Task EvaluateAsync_UserTargeted_WhenFlagGloballyDisabled_ReturnsUserTargeted()
+    {
+        var key = new FlagKey("my-flag");
+        // Flag is globally off but user-42 is explicitly targeted
+        var flag = FeatureFlag.Create(key, isEnabled: false, userTargeting: ["user-42"]);
+        _cache.GetAsync(key).Returns(Task.FromResult<FeatureFlag?>(flag));
+
+        var result = await _evaluator.EvaluateAsync(key, "user-42");
+
+        Assert.True(result.IsEnabled);
+        Assert.Equal(EvaluationReason.UserTargeted, result.Reason);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_NonTargetedUser_WhenFlagGloballyDisabled_ReturnsDisabled()
+    {
+        var key = new FlagKey("my-flag");
+        var flag = FeatureFlag.Create(key, isEnabled: false, userTargeting: ["user-42"]);
+        _cache.GetAsync(key).Returns(Task.FromResult<FeatureFlag?>(flag));
+
+        var result = await _evaluator.EvaluateAsync(key, "user-99");
+
+        Assert.False(result.IsEnabled);
+        Assert.Equal(EvaluationReason.Disabled, result.Reason);
+    }
 }
