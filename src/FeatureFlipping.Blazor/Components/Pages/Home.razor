@@ -1,0 +1,281 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using FeatureFlipping.Blazor.Services
+@inject IFeatureFlagApiClient Api
+@implements IDisposable
+
+<PageTitle>Feature Flipping Demo</PageTitle>
+
+<h1>🚀 Feature Flipping Demo</h1>
+
+<div class="mb-3">
+    <button class="btn btn-secondary" @onclick="RefreshFlags">🔄 Refresh</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Loading flags…</em></p>
+}
+else
+{
+    <table class="table table-hover table-bordered">
+        <thead class="table-dark">
+            <tr>
+                <th>Key</th>
+                <th>Status</th>
+                <th>Value</th>
+                <th>Rollout %</th>
+                <th>User Targeting</th>
+                <th>Cache</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var flag in _flags)
+            {
+                <tr class="@(flag.IsEnabled ? "table-success" : "table-danger")">
+                    <td><strong>@flag.Key</strong></td>
+                    <td>
+                        <span class="badge @(flag.IsEnabled ? "bg-success" : "bg-danger")">
+                            @(flag.IsEnabled ? "ON" : "OFF")
+                        </span>
+                    </td>
+                    <td>
+                        @if (_editingKey == flag.Key)
+                        {
+                            <input class="form-control form-control-sm" style="width:160px"
+                                   @bind="_editValue" />
+                        }
+                        else
+                        {
+                            @(flag.Value ?? "–")
+                        }
+                    </td>
+                    <td>
+                        @if (_editingKey == flag.Key)
+                        {
+                            <input type="number" class="form-control form-control-sm" style="width:80px"
+                                   @bind="_editRollout" min="0" max="100" />
+                        }
+                        else
+                        {
+                            @($"{flag.RolloutPercentage}%")
+                        }
+                    </td>
+                    <td>
+                        <small>@(flag.UserTargeting.Length > 0 ? string.Join(", ", flag.UserTargeting) : "–")</small>
+                    </td>
+                    <td>
+                        <span class="badge @(_cacheStatuses.GetValueOrDefault(flag.Key) == "CACHED" ? "bg-warning text-dark" : "bg-info text-dark")">
+                            @_cacheStatuses.GetValueOrDefault(flag.Key, "FRESH")
+                        </span>
+                    </td>
+                    <td>
+                        @if (_editingKey == flag.Key)
+                        {
+                            <button class="btn btn-sm btn-success me-1" @onclick="() => SaveEdit(flag.Key)">💾 Save</button>
+                            <button class="btn btn-sm btn-secondary" @onclick="CancelEdit">✖ Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-warning me-1" @onclick="() => Toggle(flag.Key)">⚡ Toggle</button>
+                            <button class="btn btn-sm btn-primary" @onclick="() => StartEdit(flag)">✏️ Edit</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<hr />
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header"><strong>🎯 Evaluate Flag</strong></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Flag Key</label>
+                    <select class="form-select" @bind="_evalKey">
+                        <option value="">– select –</option>
+                        @foreach (var f in _flags)
+                        {
+                            <option value="@f.Key">@f.Key</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">User ID (optional)</label>
+                    <input class="form-control" @bind="_evalUserId" placeholder="e.g. user-42" />
+                </div>
+                <button class="btn btn-primary" @onclick="Evaluate">Evaluate</button>
+
+                @if (_evalResult is not null)
+                {
+                    <div class="alert @(_evalResult.IsEnabled ? "alert-success" : "alert-danger") mt-3">
+                        <strong>@(_evalResult.IsEnabled ? "✅ ENABLED" : "❌ DISABLED")</strong>
+                        &nbsp;| Reason: <strong>@_evalResult.Reason</strong>
+                        @if (!string.IsNullOrEmpty(_evalResult.Value))
+                        {
+                            <span> | Value: <code>@_evalResult.Value</code></span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header"><strong>📡 Live Indicator</strong></div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Flag Key</label>
+                    <select class="form-select" @bind="_liveKey">
+                        <option value="">– select –</option>
+                        @foreach (var f in _flags)
+                        {
+                            <option value="@f.Key">@f.Key</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">User ID (optional)</label>
+                    <input class="form-control" @bind="_liveUserId" placeholder="e.g. user-99" />
+                </div>
+                <button class="btn btn-success me-1" @onclick="StartLive">▶ Start</button>
+                <button class="btn btn-secondary" @onclick="StopLive">⏹ Stop</button>
+
+                @if (_liveResult is not null)
+                {
+                    <div class="alert @(_liveResult.IsEnabled ? "alert-success" : "alert-danger") mt-3">
+                        <strong>@(_liveResult.IsEnabled ? "🟢 ENABLED" : "🔴 DISABLED")</strong>
+                        &nbsp;| Reason: <strong>@_liveResult.Reason</strong>
+                        <br /><small>Last checked: @_liveResult.EvaluatedAt.ToLocalTime().ToString("HH:mm:ss")</small>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<FeatureFlagModel> _flags = new();
+    private Dictionary<string, string> _cacheStatuses = new();
+    private bool _loading = true;
+
+    private string? _editingKey;
+    private string? _editValue;
+    private int _editRollout;
+
+    private string _evalKey = string.Empty;
+    private string _evalUserId = string.Empty;
+    private FlagEvaluationModel? _evalResult;
+
+    private string _liveKey = string.Empty;
+    private string _liveUserId = string.Empty;
+    private FlagEvaluationModel? _liveResult;
+    private System.Timers.Timer? _liveTimer;
+    private System.Timers.Timer? _cacheTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshFlags();
+        _cacheTimer = new System.Timers.Timer(5000);
+        _cacheTimer.Elapsed += async (_, _) => await RefreshCacheStatuses();
+        _cacheTimer.Start();
+    }
+
+    private async Task RefreshFlags()
+    {
+        _loading = true;
+        _flags = await Api.GetAllFlagsAsync();
+        await RefreshCacheStatuses();
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task RefreshCacheStatuses()
+    {
+        foreach (var f in _flags)
+            _cacheStatuses[f.Key] = await Api.GetCacheStatusAsync(f.Key);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Toggle(string key)
+    {
+        var updated = await Api.ToggleFlagAsync(key);
+        if (updated is not null)
+        {
+            var idx = _flags.FindIndex(f => f.Key == key);
+            if (idx >= 0) _flags[idx] = updated;
+        }
+        await RefreshCacheStatuses();
+        StateHasChanged();
+    }
+
+    private void StartEdit(FeatureFlagModel flag)
+    {
+        _editingKey = flag.Key;
+        _editValue = flag.Value;
+        _editRollout = flag.RolloutPercentage;
+    }
+
+    private async Task SaveEdit(string key)
+    {
+        var flag = _flags.FirstOrDefault(f => f.Key == key);
+        if (flag is null) return;
+        var updated = await Api.UpdateFlagAsync(key, new UpdateFlagRequest(flag.IsEnabled, _editValue, flag.UserTargeting, _editRollout));
+        if (updated is not null)
+        {
+            var idx = _flags.FindIndex(f => f.Key == key);
+            if (idx >= 0) _flags[idx] = updated;
+        }
+        _editingKey = null;
+        await RefreshCacheStatuses();
+        StateHasChanged();
+    }
+
+    private void CancelEdit()
+    {
+        _editingKey = null;
+        StateHasChanged();
+    }
+
+    private async Task Evaluate()
+    {
+        if (string.IsNullOrEmpty(_evalKey)) return;
+        _evalResult = await Api.EvaluateFlagAsync(_evalKey, _evalUserId);
+        StateHasChanged();
+    }
+
+    private void StartLive()
+    {
+        StopLive();
+        if (string.IsNullOrEmpty(_liveKey)) return;
+        _liveTimer = new System.Timers.Timer(3000);
+        _liveTimer.Elapsed += async (_, _) =>
+        {
+            _liveResult = await Api.EvaluateFlagAsync(_liveKey, _liveUserId);
+            await InvokeAsync(StateHasChanged);
+        };
+        _liveTimer.AutoReset = true;
+        _liveTimer.Start();
+    }
+
+    private void StopLive()
+    {
+        _liveTimer?.Stop();
+        _liveTimer?.Dispose();
+        _liveTimer = null;
+    }
+
+    public void Dispose()
+    {
+        StopLive();
+        _cacheTimer?.Stop();
+        _cacheTimer?.Dispose();
+    }
+}
+
